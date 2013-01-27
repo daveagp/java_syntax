@@ -3,7 +3,7 @@ def java_parse(rawtext):
     """
     Procedure to check whether a snippet of Java 7 text represents
     a single line, a properly nested {} block structure, or none of the above.
-    
+     
     A single line is defined as having no \r\n; outside of comments/quotes.
     This is not the absolute best definition as you could write something like
        do {} while (true)   or   if (x == y++) {} else if (y == z++) {}
