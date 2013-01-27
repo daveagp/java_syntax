@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import re
 def java_parse(rawtext):
+    tabwidth = 4
     """
     Procedure to check whether a snippet of Java 7 text represents
     a single line, a properly nested {} block structure, or none of the above.
@@ -55,11 +56,31 @@ def java_parse(rawtext):
         if errmsg=="":
             errmsg = "Error at line {}, column {}:\n{}".format(
                 line, column, description)
+
+    def tabify(seq):
+        result = []
+        line = []
+        for item in seq:
+            if isinstance(item, str):
+                if item=='\n':
+                    pass # we assume an integer just appeared
+                else:
+                    if len(line)==0 and item in whitespace: # kill leading spaces
+                        pass
+                    else:
+                        line.append(item)
+            else:
+                if len(line)>0: # suppress blank lines
+                    result.extend([" "*tabwidth*item, ''.join(line), '\n'])
+                line = []
+        return ''.join(result)
             
+
     ### here are the variables that are semantically constant ###
     # states (single, multi-line comment; single, double quote)
     java, scomment, mcomment, squote, dquote = [object() for i in range(5)]
 
+    whitespace = {' ', '\t', '\f', '\n'}
     open_parens = {'{', '(', '['}
     close_parens = {'}', ')', ']'}
     match = {'{':'}', '}':'{', '(':')', ')':'(', '[':']', ']':'['}
@@ -69,45 +90,46 @@ def java_parse(rawtext):
     ### here are the variables that are not semantically constant ###
     semicolons = 0
     errmsg = ""
-    text_nocomments = []
+    # next two are sequences of characters, digrams, and integers before
+    # each EOL/EOF indicating indentation amount of the previous line
+    text_nocomments = [] # this is used to tabify and examine endings
+    text_wcomments = []  # this is used to tabify
     position = 0
     state = java
-    parens = []
+    nesting_stack = []
     line = 0
     column = 0
+    # line_indent is a running minimum of len(nesting_stack) on the current line
+    line_indent = 0
 
     text = preprocess(rawtext)
     
     ### begin the parsing loop
     while position < len(text):
+        # gobbledegook to define old.state, old.position
         old = type('', (), {'position': position, 'state': state})
+
         ch = text[position]
         is_newline = (ch == "\n") # \r was removed in preprocessing
         nextch = "NA" if (position+1 == len(text)) else text[position+1]
-        digram = ch + nextch
-      
-        #/* //for debugging
-        #//if ($oldstate != $state && $oldstate != -1) 
-        #echo "[$next $digram $oneline ".$state_name[$state]."]"
-        #// */
-
+        digram = ch + nextch      
         position += 1      
 
         if state == java:
             # begin case-checking
             if ch in open_parens:
-                parens.append(ch)
+                nesting_stack.append(ch)
             elif ch in close_parens: 
-                if len(parens) == 0: 
+                if len(nesting_stack) == 0: 
                     report_error(
                         "Found a closing '{}' not matching any earlier '{}'.".
                         format(ch, match[ch]))
-                elif parens[-1] != match[ch]:
+                elif nesting_stack[-1] != match[ch]:
                     report_error(
                         "Found a closing '{}' where a '{}' was expected.".
-                        format(ch, match[parens[-1]]))
+                        format(ch, match[nesting_stack[-1]]))
                 else:
-                    parens.pop()
+                    nesting_stack.pop()
             elif ch == '"':
                 state = dquote
             elif ch == "'":
@@ -117,6 +139,7 @@ def java_parse(rawtext):
                 position += 1
             elif digram == '/*':
                 state = mcomment
+                mcomment_start_line = line
                 position += 1
             elif ch == ';':
                 semicolons += 1
@@ -139,23 +162,35 @@ def java_parse(rawtext):
         elif state == scomment:
             if is_newline:
                 state = java
-                text_nocomments.append(ch)
+                text_nocomments.append(line_indent)
+                text_nocomments.append('\n')
         elif state == mcomment:
             if digram == "*/":
                 state = java
                 position += 1
-                text_nocomments.append(' ')
+                if mcomment_start_line == line: # one-line /*comment*/
+                    text_nocomments.append(' ')
+                else:
+                    text_nocomments.append(line_indent)
+                    text_nocomments.append('\n')
+
       
         # continue parsing the next iteration!
-        if len({state, old.state}.intersection({scomment, mcomment}))==0:
-            text_nocomments.append(text[old.position:position])
-            
         if is_newline:
+            text_nocomments.append(line_indent)
+            text_wcomments.append(line_indent)
             line += 1
             column = 0
+            line_indent = len(nesting_stack)
         else:
             column += position - old.position
-    
+            line_indent = min(line_indent, len(nesting_stack))
+
+        consumed = text[old.position:position]
+        if len({state, old.state}.intersection({scomment, mcomment}))==0:
+            text_nocomments.append(consumed)
+        text_wcomments.append(consumed)
+
     # parsing loop is done
     if state == squote:
         report_error("Character delimeter (') followed by end of input.")
@@ -163,16 +198,19 @@ def java_parse(rawtext):
         report_error("String delimeter (\") followed by end of input.")
     elif state == mcomment:
         report_error("Comment delimeter (/*) followed by end of input.")
-    elif len(parens) > 0:
+    elif len(nesting_stack) > 0:
         report_error("Unmatched '{}'. Expected '{}' at end.".format(
-            parens[-1], match[parens[-1]]))
+            nesting_stack[-1], match[nesting_stack[-1]]))
+
+    text_nocomments.append(line_indent)
+    text_wcomments.append(line_indent)
 
     result = {}
     valid = errmsg == ""
 
     last_significant_char = None
     for item in reversed(text_nocomments):
-        if item in {' ', '\t', '\f', '\n'}: continue
+        if item in whitespace: continue
         last_significant_char = item
         break
 
@@ -180,13 +218,16 @@ def java_parse(rawtext):
     result["ends_with_scomment"] = valid and state == scomment
     result["text"] = text
     result["errmsg"] = errmsg
-    result["text_nocomments"] = ''.join(text_nocomments)
+    result["text_nocomments"] = ''.join(filter(lambda x: isinstance(x, str),
+                                               text_nocomments))
     result["oneline"] = "\n" not in text and semicolons == 0
     result["oneline_with_semicolon"] = ("\n" not in text and semicolons == 1
                                         and last_significant_char == ';')
     result["empty"] = last_significant_char == None
     result["terminated_badly"] = last_significant_char not in {";", "}", None}
-
+    result["tabified_nocomments"] = tabify(text_nocomments)
+    result["tabified_wcomments"] = tabify(text_wcomments)    
+    
     return result
 
 def run_tests():
@@ -229,13 +270,16 @@ def run_tests():
         "empty quotes '' \"\" ... the next test is an empty string",
         "",
         "3 windows newlines\r\n\r\n\r\n",
-        "carriage\u000dreturn"]
+        "carriage\u000dreturn",
+        "here/*space*/inserted",
+        "here/*newline\n*/inserted",
+        "here//newline\ninserted"]
 
     r = []
     for test in tests:
         r.append("\n\n")
-        result = java_parse(test);
-        r.append("<br/>Test<br/><pre>"+test+"</pre><br/> yields flags ")
+        result = java_parse(test)
+        r.append("<br/>Test<pre>"+test+"</pre> yields flags ")
         for k, v in result.items():
             if v is True:
                 r.append("["+k+"] ")
@@ -243,12 +287,30 @@ def run_tests():
         if result["text"] == test:
             r.append("<br/>")
         else:
-            r.append("and returns changed text:<br/><pre>"+result["text"]+"</pre><br/>")
+            r.append("and returns changed text:<pre>"+result["text"]+"</pre>")
 
         if not result["valid"]:
             r.append("and error message:<br/>"+result["errmsg"]+"<br/>")
 
         if result["text_nocomments"] != result["text"]:
-            r.append("Stripped text: "+result["text_nocomments"]+"<br/>")
+            r.append("Stripped text: <pre>"+result["text_nocomments"]+"</pre><br/>")
+
     return ''.join(r)
 
+def run_tabify_tests():
+    r = []
+    tests = ["forloop {\n ifstatement { \n body1; \nbody2;\n}\n}",
+             "forloop \n{\n ifstatement  \n{\n body1; \nbody2;\n}\n}",
+             "if () {\n stuff \n } else { \n stuff \n}",
+             "if () \n{\n stuff \n }\nelse\n{\n stuff\n }",
+             "int[][] x = new int[][]{\n{1, 2},\n,\n{1, 2,\n3\n}\n}",
+             "((\nshould not indent two levels\n))"
+             ]
+    for test in tests:
+        r.append("\n\n<br>")
+        result = java_parse(test)
+        r.append("<br/>Test<pre>"+test+"</pre>")
+        r.append("<br/>Tabified:<pre>"+result["tabified_wcomments"]+"</pre>")
+        if result["tabified_wcomments"] != result["tabified_nocomments"]:
+            r.append("<br/>Tabified, no comments:<pre>"+result["tabified_nocomments"]+"</pre>")
+    return ''.join(r)
