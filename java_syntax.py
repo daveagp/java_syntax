@@ -1,11 +1,13 @@
 #!/usr/bin/python3
+import re
 def java_parse(rawtext):
     """
     Procedure to check whether a snippet of Java 7 text represents
     a single line, a properly nested {} block structure, or none of the above.
      
-    A single line is defined as having no \r\n; outside of comments/quotes.
-    This is not the absolute best definition as you could write something like
+    A single line is defined as having no newline or semicolon outside of
+    comments/quotes. This is not the absolute best definition as you could
+    write something like
        do {} while (true)   or   if (x == y++) {} else if (y == z++) {}
     but it does eliminate for-loops and therefore all comma-delimeted
     expression sequences. If you solve an exercise in such a crazy way,
@@ -35,13 +37,11 @@ def java_parse(rawtext):
     
     """
     
-    def preprocess(rawtext):
-        import re
-        
+    def preprocess(rawtext):        
         # not backslash, then 2k+1 backslashes, u's, 00, two hex digits
         # nb: r"..." is a raw string to reduce backslash duplication
         tmp = re.sub(
-            r"(?<!\\)((\\\\)*)\\u+00([0-7][[0-9A-Fa-f]])",
+            r"(?<!\\)((\\\\)*)\\u+00([0-7][0-9A-Fa-f])",
             # on the next line mo is a match object #
             lambda mo: mo.group(1) + chr(int(mo.group(3), 16)),
             rawtext)
@@ -67,26 +67,23 @@ def java_parse(rawtext):
     for p in open_parens: paren_name[match[p]] = paren_name[p]
 
     ### here are the variables that are not semantically constant ###
-    oneline = True
-    oneline_with_semicolon = False
-    last_significant_char = None
+    semicolons = 0
     errmsg = ""
     text_nocomments = []
-    next = 0
+    position = 0
     state = java
     parens = []
-    oldstate = -1
     line = 0
     column = 0
 
     text = preprocess(rawtext)
     
     ### begin the parsing loop
-    while next < len(text):
-        oldnext = next
-        ch = text[next]
+    while position < len(text):
+        old = type('', (), {'position': position, 'state': state})
+        ch = text[position]
         is_newline = (ch == "\n") # \r was removed in preprocessing
-        nextch = "NA" if (next+1 == len(text)) else text[next+1]
+        nextch = "NA" if (position+1 == len(text)) else text[position+1]
         digram = ch + nextch
       
         #/* //for debugging
@@ -94,24 +91,11 @@ def java_parse(rawtext):
         #echo "[$next $digram $oneline ".$state_name[$state]."]"
         #// */
 
-        oldstate = state
-        next += 1      
+        position += 1      
 
         if state == java:
-            is_inline_whitespace = ch in {"\t", "\f", " "}
-            if not (is_newline or is_inline_whitespace
-                    or digram in {"//", "/*"}):
-                last_significant_char = ch
-
-            oneline_with_semicolon &= (is_inline_whitespace
-                                       or digram in {"//", "/*"})
-
             # begin case-checking
-            if (is_newline or ch == ";") and oneline:
-                oneline = False
-                if ch == ';':
-                    oneline_with_semicolon = True                
-            elif ch in open_parens:
+            if ch in open_parens:
                 parens.append(ch)
             elif ch in close_parens: 
                 if len(parens) == 0: 
@@ -130,16 +114,18 @@ def java_parse(rawtext):
                 state = squote
             elif digram == '//':
                 state = scomment
-                next += 1
+                position += 1
             elif digram == '/*':
                 state = mcomment
-                next += 1
+                position += 1
+            elif ch == ';':
+                semicolons += 1
         # end of checking from 'java' state
         elif state == dquote:
             if is_newline:
                 report_error('String delimeter (") followed by end of line.')
             elif digram in {r"\\", r'\"'}:
-                next += 1
+                position += 1
             elif ch == '"':
                 state = java
         elif state == squote:
@@ -147,7 +133,7 @@ def java_parse(rawtext):
                 report_error(
                     "Character delimeter (') followed by end of line.")
             elif digram in {r"\\", r"\'"}:
-                next += 1
+                position += 1
             elif ch == "'":
                 state = java
         elif state == scomment:
@@ -157,18 +143,18 @@ def java_parse(rawtext):
         elif state == mcomment:
             if digram == "*/":
                 state = java
-                next += 1
+                position += 1
                 text_nocomments.append(' ')
       
         # continue parsing the next iteration!
-        if len({state, oldstate}.intersection({scomment, mcomment}))==0:
-            text_nocomments.append(text[oldnext:next])
+        if len({state, old.state}.intersection({scomment, mcomment}))==0:
+            text_nocomments.append(text[old.position:position])
             
         if is_newline:
             line += 1
             column = 0
         else:
-            column += next - oldnext
+            column += position - old.position
     
     # parsing loop is done
     if state == squote:
@@ -178,27 +164,35 @@ def java_parse(rawtext):
     elif state == mcomment:
         report_error("Comment delimeter (/*) followed by end of input.")
     elif len(parens) > 0:
-        report_error("Unmatched '{}': '{}' expected at end.".format(
+        report_error("Unmatched '{}'. Expected '{}' at end.".format(
             parens[-1], match[parens[-1]]))
 
     result = {}
     valid = errmsg == ""
+
+    last_significant_char = None
+    for item in reversed(text_nocomments):
+        if item in {' ', '\t', '\f', '\n'}: continue
+        last_significant_char = item
+        break
 
     result["valid"] = valid
     result["ends_with_scomment"] = valid and state == scomment
     result["text"] = text
     result["errmsg"] = errmsg
     result["text_nocomments"] = ''.join(text_nocomments)
-    result["online"] = oneline
+    result["oneline"] = "\n" not in text and semicolons == 0
+    result["oneline_with_semicolon"] = ("\n" not in text and semicolons == 1
+                                        and last_significant_char == ';')
     result["empty"] = last_significant_char == None
-    result["terminated_badly"] = last_significant_char not in {"", "}", None}
+    result["terminated_badly"] = last_significant_char not in {";", "}", None}
 
     return result
 
 def run_tests():
     tests = [
         ("\\u004eow testing. Gives 5 backslashes: \\\\\\u005c\\\\." +
-         " Won't convert: \\\\u0066, \\u0088. New\\uu000aline, " +
+         " Will not convert: \\\\u0066, \\u0088. New\\uu000aline, " +
          "line\\uuu000dfeed. Ta d\u0061\u0021"),
         "a single line",
         "a single line with newline at end\n",
@@ -215,9 +209,9 @@ def run_tests():
         "semicolon followed by comments; /* blah; */ // ",
         "semicolon followed by quotes; 'yeah'",
         "good braces {}{}{{{}}}",
-        "wrong kind of braces {]",
+        "wrong kind \u000a of braces {]",
         "wrong kind of braces {(})",
-        "angle brackets aren't checked --- since they are operators <>",
+        "angle brackets arent checked --- since they are operators <>",
         "too many {{{{s",
         "balanced but unordered }{",
         "too many }}}}s",
@@ -241,7 +235,7 @@ def run_tests():
     for test in tests:
         r.append("\n\n")
         result = java_parse(test);
-        r.append("<br/>Test<br/>"+test+"<br/> yields flags ")
+        r.append("<br/>Test<br/><pre>"+test+"</pre><br/> yields flags ")
         for k, v in result.items():
             if v is True:
                 r.append("["+k+"] ")
@@ -249,7 +243,7 @@ def run_tests():
         if result["text"] == test:
             r.append("<br/>")
         else:
-            r.append("and returns changed text:<br/>"+result["text"]+"<br/>")
+            r.append("and returns changed text:<br/><pre>"+result["text"]+"</pre><br/>")
 
         if not result["valid"]:
             r.append("and error message:<br/>"+result["errmsg"]+"<br/>")
