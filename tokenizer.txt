@@ -1,0 +1,29 @@
+- perform unicode replacement
+
+- delete comments
+
+- a token is a non-quoted sequence of the form:
+ (identifier) starts with letter or _ or $, continues with same and/or digits
+ (numeric) 
+[+|-|]
+[
+  [ (0x|0X)(:hexdig:|_)~+
+  | (0b|0B)(:bindig:|_)~+
+  ]
+  [|lL]
+|
+  (digit|_)~+ [. [(digit|_)~*]] | (. (digit|_)~+ )
+  [ | [e|E [+|-|] (digit|_)~+ ] ]
+  [|fFdD]
+]
+
+where ~* means first, last can't be _
+
+- add a space around every such token, the front and end of each quotation, and around every other character
+
+
+
+Maybe JFlex is useful, or
+http://www.java.happycodings.com/Core_Java/code84.html
+or
+http://www.java2s.com/Tutorial/Java/0180__File/TokenizingJavaSourceCode.htm

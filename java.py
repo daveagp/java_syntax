@@ -1,46 +1,41 @@
-<?php
-
-  /*********************************************************************
-   Procedure to check whether a snippet of Java 7 text represents
-   a single line, a properly nested {} block structure, or none of the above.
-
-   A single line is defined as having no \r\n; outside of comments/quotes.
-   This is not the absolute best definition as you could write something like
+#!/usr/bin/python3
+def java_parse(text):
+    """
+    Procedure to check whether a snippet of Java 7 text represents
+    a single line, a properly nested {} block structure, or none of the above.
+    
+    A single line is defined as having no \r\n; outside of comments/quotes.
+    This is not the absolute best definition as you could write something like
        do {} while (true)   or   if (x == y++) {} else if (y == z++) {}
-   but it does eliminate for-loops and therefore all comma-delimeted
-   expression sequences. If you solve an exercise in such a crazy way,
-   props to you!
-
-   The text is said to be well-terminated if the last non-comment character
-   is ; or }. Otherwise it returns a "terminated badly" flag. This is
-   mostly to avoid students doing sneaky things where we ask them to
-   fill in a spot and then they get it to interact with surrounding fixed
-   text. E.g., "x =" on one line followed by our "y = input()" on the next.
-
-   Reference:
-   http://docs.oracle.com/javase/specs/jls/se7/html/index.html
-  *******************/
-
-  /**************
-   Java allows you to write \uABCD where ABCD are hex digits as a
-   replacement for any part of your source text, including comments, javadoc,
-   quotes, and actual language structures. For example you
-   can start a comment with \* and end it with \u002a\ since unicode code
-   point 42 is an asterisk. This makes our job harder. The first thing is to 
-   take care of this with preprocessing. We'll only deal with true ASCII (code
-   points < 128) since all meaningful Java language characters lie in this
-   range, and since dealing with higher ones is a pain in PHP.
-  ****************/
-
-function java_parse($text) {
-  $jp = new Java_Parser($text);
-  return $jp->$results;
-}
-
-class Java_Parser {
-
-  function preprocess($rawtext) {
-    $regex = "(?<!\\\\)((\\\\\\\\)*)\\\\u+00([0-7][[:xdigit:]])";
+    but it does eliminate for-loops and therefore all comma-delimeted
+    expression sequences. If you solve an exercise in such a crazy way,
+    props to you!
+    
+    The text is said to be well-terminated if the last non-comment character
+    is ; or }. Otherwise it returns a "terminated badly" flag. This is
+    mostly to avoid students doing sneaky things where we ask them to
+    fill in a spot and then they get it to interact with surrounding fixed
+    text. E.g., "x =" on one line followed by our "y = input()" on the next.
+    
+    Reference:
+    http://docs.oracle.com/javase/specs/jls/se7/html/index.html
+    
+    About preprocessing:
+    
+    Java allows you to write \uABCD where ABCD are hex digits as a
+    replacement for any part of your source text, including comments, javadoc,
+    quotes, and actual language structures. For example you
+    can start a comment with \* and end it with \u002a\ since unicode code
+    point 42 is an asterisk. This makes our job harder. The first thing is to 
+    take care of this with preprocessing. We'll only deal with true ASCII (code
+    points < 128) since all meaningful Java language characters lie in this
+    range, and since dealing with higher ones is a pain in PHP.
+    
+    We convert all \r\n, \n\r, and isolated \r to \n, to simplify the logic.
+    """
+    
+    def preprocess(rawtext):
+        $regex = "(?<!\\\\)((\\\\\\\\)*)\\\\u+00([0-7][[:xdigit:]])";
     // not a backslash, followed by 2k+1 backslashes, u's, 00, two hex digits
     // nb: backslash duplication both for PHP escaping and regex escaping
     
