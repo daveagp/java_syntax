@@ -1,7 +1,62 @@
 #!/usr/bin/python3
 import re
+
+"""
+TODO for indentations:
+1: handle inline-if/while/do loops correctly
+2: prevent multiple indents on a single line
+3: look for implied line continuations
+4: switch
+
+1:
+- e.g. if()\nFOO; should indent FOO;
+- this can occur after if(...), else, while(...), do
+- likely implementation: put items on stack, delete all topmost
+  inline blocks when a ; or } is processed
+- make sure if()\nif()\nelse is indented logically!
+  such an else should only close the latest if()
+2:
+- e.g. {{\nFOO should indent FOO by only one level
+- similar with for() for() {\n...
+3:
+- maybe ; and } and , are the non-continuing characters?
+4:
+- inside of switch(){...} is indented by 2,
+  but lines starting with 'symbol:' get indented only by 1.
+
+test cases for 1+2: 'for()for()\n{\nFOO' should give
+for()for()
+{
+   FOO
+while 'x = {{foo,\nbar},\nbaz};' should give
+x = {{foo,
+   bar},
+   baz};
+"""
+
+def record(**dict):
+    """ e.g. foo = record(bar='baz', jim=5) creates an object foo
+    such that foo.bar == 'baz', foo.jim == 5 """
+    return type('', (), dict)
+
+# parser states
+java, scomment, mcomment, squote, dquote = [
+    record(name = n) for n in [
+    "JAVA", "SINGLE-LINE COMMENT", "MULTI-LINE COMMENT",
+    "SINGLE-QUOTED LITERAL", "DOUBLE-QUOTED LITERAL"]]
+
+def is_comment(state): return state in {scomment, mcomment}
+
+whitespace = {' ', '\t', '\f', '\n'}
+open_parens = {'{', '(', '['}
+close_parens = {'}', ')', ']'}
+match = {'{':'}', '}':'{', '(':')', ')':'(', '[':']', ']':'['}
+paren_name = {'{':'brace', '[':'bracket', '(':'parenthesis'}
+for p in open_parens: paren_name[match[p]] = paren_name[p]
+
+default_tab_width = 4
+    
 def java_parse(rawtext):
-    tabwidth = 4
     """
     Procedure to check whether a snippet of Java 7 text represents
     a single line, a properly nested {} block structure, or none of the above.
@@ -57,43 +112,49 @@ def java_parse(rawtext):
             errmsg = "Error at line {}, column {}:\n{}".format(
                 line, column, description)
 
-    def tabify(seq):
+    def tabify_output_list(keep_comments, tab_width):
         result = []
         line = []
-        for item in seq:
-            if isinstance(item, str):
-                if item=='\n':
-                    pass # we assume an integer just appeared
+        for item in output_list:
+            if item.type=='text':
+                if item.chars=='\n':
+                    pass  # handled by 'indent'
+                          # although it may add '\n' to very end
+                elif not keep_comments and item.is_comment:
+                    pass
+                elif len(line)==0 and item.chars in whitespace: 
+                    pass  # kill leading spaces
                 else:
-                    if len(line)==0 and item in whitespace: # kill leading spaces
-                        pass
-                    else:
-                        line.append(item)
-            else:
-                if len(line)>0: # suppress blank lines
-                    result.extend([" "*tabwidth*item, ''.join(line), '\n'])
-                line = []
+                    line.append(item.chars)
+            elif item.type=='indent':
+                # suppress blank lines if comments are off
+                if keep_comments or len(line) > 0:
+                    result.append(" " * tab_width * item.indent)
+                    result.extend(line)
+                    result.append('\n')
+                    line = []
+            else: assert False, "unknown type "+str(item.type)+"in tabify"
         return ''.join(result)
-            
 
-    ### here are the variables that are semantically constant ###
-    # states (single, multi-line comment; single, double quote)
-    java, scomment, mcomment, squote, dquote = [object() for i in range(5)]
+    def get_text(keep_comments = True, tabify = False, tab_width = default_tab_width):
+        if tabify:
+            return tabify_output_list(keep_comments = keep_comments,
+                                      tab_width = tab_width)
+        else:
+            if keep_comments:
+                return text
+            else:
+                return ''.join(i.chars for i in output_list
+                               if i.type=='text' and not i.is_whitespace)
 
-    whitespace = {' ', '\t', '\f', '\n'}
-    open_parens = {'{', '(', '['}
-    close_parens = {'}', ')', ']'}
-    match = {'{':'}', '}':'{', '(':')', ')':'(', '[':']', ']':'['}
-    paren_name = {'{':'brace', '[':'bracket', '(':'parenthesis'}
-    for p in open_parens: paren_name[match[p]] = paren_name[p]
+    def register_newline():
+        nonlocal output_list
+        output_list.append(record(type = 'indent', indent = line_indent))
 
     ### here are the variables that are not semantically constant ###
     semicolons = 0
     errmsg = ""
-    # next two are sequences of characters, digrams, and integers before
-    # each EOL/EOF indicating indentation amount of the previous line
-    text_nocomments = [] # this is used to tabify and examine endings
-    text_wcomments = []  # this is used to tabify
+    output_list = []   # list of characters and metadata used for output
     position = 0
     state = java
     nesting_stack = []
@@ -106,8 +167,8 @@ def java_parse(rawtext):
     
     ### begin the parsing loop
     while position < len(text):
-        # gobbledegook to define old.state, old.position
-        old = type('', (), {'position': position, 'state': state})
+        # define old.state, old.position
+        old = record(position = position, state = state)
 
         ch = text[position]
         is_newline = (ch == "\n") # \r was removed in preprocessing
@@ -162,23 +223,22 @@ def java_parse(rawtext):
         elif state == scomment:
             if is_newline:
                 state = java
-                text_nocomments.append(line_indent)
-                text_nocomments.append('\n')
         elif state == mcomment:
             if digram == "*/":
                 state = java
                 position += 1
-                if mcomment_start_line == line: # one-line /*comment*/
-                    text_nocomments.append(' ')
-                else:
-                    text_nocomments.append(line_indent)
-                    text_nocomments.append('\n')
+                if mcomment_start_line == line: 
+                    # fake whitespace! not pretty, but practical.
+                    # this is to avoid tokens/* */collapsing.
+                    # who really uses a one-line/* */anyway?
+                    output_list.append(record(type = 'text',
+                                              chars = ' ',
+                                              is_comment = False))
 
       
         # continue parsing the next iteration!
         if is_newline:
-            text_nocomments.append(line_indent)
-            text_wcomments.append(line_indent)
+            register_newline()
             line += 1
             column = 0
             line_indent = len(nesting_stack)
@@ -186,11 +246,13 @@ def java_parse(rawtext):
             column += position - old.position
             line_indent = min(line_indent, len(nesting_stack))
 
-        consumed = text[old.position:position]
-        if len({state, old.state}.intersection({scomment, mcomment}))==0:
-            text_nocomments.append(consumed)
-        text_wcomments.append(consumed)
-
+        output_list.append(record(
+            type = 'text',
+            chars = text[old.position:position],
+            is_comment = ((is_comment(state) or is_comment(old.state))
+                          and not (state == java and old.state == scomment))
+            ))
+        
     # parsing loop is done
     if state == squote:
         report_error("Character delimeter (') followed by end of input.")
@@ -202,33 +264,29 @@ def java_parse(rawtext):
         report_error("Unmatched '{}'. Expected '{}' at end.".format(
             nesting_stack[-1], match[nesting_stack[-1]]))
 
-    text_nocomments.append(line_indent)
-    text_wcomments.append(line_indent)
+    register_newline()
 
     result = {}
     valid = errmsg == ""
 
     last_significant_char = None
-    for item in reversed(text_nocomments):
-        if item in whitespace: continue
+    for item in reversed(output_list):
+        if item.type != 'text': continue
+        if item.chars in whitespace: continue
         last_significant_char = item
         break
 
-    result["valid"] = valid
-    result["ends_with_scomment"] = valid and state == scomment
-    result["text"] = text
-    result["errmsg"] = errmsg
-    result["text_nocomments"] = ''.join(filter(lambda x: isinstance(x, str),
-                                               text_nocomments))
-    result["oneline"] = "\n" not in text and semicolons == 0
-    result["oneline_with_semicolon"] = ("\n" not in text and semicolons == 1
-                                        and last_significant_char == ';')
-    result["empty"] = last_significant_char == None
-    result["terminated_badly"] = last_significant_char not in {";", "}", None}
-    result["tabified_nocomments"] = tabify(text_nocomments)
-    result["tabified_wcomments"] = tabify(text_wcomments)    
-    
-    return result
+    return record(
+        errmsg = errmsg,
+        valid = valid,
+        ends_with_scomment = valid and state == scomment,
+        oneline = "\n" not in text and semicolons == 0,
+        oneline_with_semicolon = ("\n" not in text and semicolons == 1
+                                  and last_significant_char == ';'),
+        empty = last_significant_char == None,
+        terminated_badly = last_significant_char not in {";", "}", None},
+        get_text = get_text
+    )
 
 def run_tests():
     tests = [
@@ -280,20 +338,21 @@ def run_tests():
         r.append("\n\n")
         result = java_parse(test)
         r.append("<br/>Test<pre>"+test+"</pre> yields flags ")
-        for k, v in result.items():
+        for k, v in result.__dict__.items():
             if v is True:
                 r.append("["+k+"] ")
 
-        if result["text"] == test:
+        gt = result.get_text
+        if gt() == test:
             r.append("<br/>")
         else:
-            r.append("and returns changed text:<pre>"+result["text"]+"</pre>")
+            r.append("and returns changed text:<pre>"+gt()+"</pre>")
 
-        if not result["valid"]:
-            r.append("and error message:<br/>"+result["errmsg"]+"<br/>")
+        if not result.valid:
+            r.append("and error message:<br/>"+result.errmsg+"<br/>")
 
-        if result["text_nocomments"] != result["text"]:
-            r.append("Stripped text: <pre>"+result["text_nocomments"]+"</pre><br/>")
+        if gt(keep_comments = True) != gt():
+            r.append("Stripped text: <pre>" + gt(keep_comments = True) + "</pre><br/>")
 
     return ''.join(r)
 
@@ -304,13 +363,21 @@ def run_tabify_tests():
              "if () {\n stuff \n } else { \n stuff \n}",
              "if () \n{\n stuff \n }\nelse\n{\n stuff\n }",
              "int[][] x = new int[][]{\n{1, 2},\n,\n{1, 2,\n3\n}\n}",
-             "((\nshould not indent two levels\n))"
+             "((\nshould not indent two levels\n))",
+             ("for (){ // some comment blah \n // comment \n stuff /* multi\n"+
+              "line*/ \n} // endish") 
              ]
+
     for test in tests:
-        r.append("\n\n<br>")
+        
         result = java_parse(test)
+        with_comments = result.get_text(tabify = True, keep_comments = True)
+        no_comments = result.get_text(tabify = True, keep_comments = False)
+
+        r.append("\n\n<br>")
         r.append("<br/>Test<pre>"+test+"</pre>")
-        r.append("<br/>Tabified:<pre>"+result["tabified_wcomments"]+"</pre>")
-        if result["tabified_wcomments"] != result["tabified_nocomments"]:
-            r.append("<br/>Tabified, no comments:<pre>"+result["tabified_nocomments"]+"</pre>")
+        r.append("<br/>Tabified:<pre>" + with_comments + "</pre>")
+        if with_comments != no_comments:
+            r.append("<br/>Tabified, no comments:<pre>" + no_comments + "</pre>")
+
     return ''.join(r)
