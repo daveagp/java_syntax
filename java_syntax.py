@@ -15,6 +15,8 @@ TODO for indentations:
   inline blocks when a ; or } is processed
 - make sure if()\nif()\nelse is indented logically!
   such an else should only close the latest if()
+- if()\s*[not {] denotes the start of an inline-if, but the indent
+  should be counted as starting right after the parenthesis
 2:
 - e.g. {{\nFOO should indent FOO by only one level
 - similar with for() for() {\n...
