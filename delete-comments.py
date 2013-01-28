@@ -5,4 +5,4 @@
 
 import java_syntax, sys
 
-print(java_syntax.java_parse(sys.stdin.read())["tabified_nocomments"], end="")
+print(java_syntax.java_parse(sys.stdin.read()).get_text(keep_comments = False, tabify = True), end="")
