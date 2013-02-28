@@ -275,7 +275,8 @@ def java_parse(rawtext):
     for item in reversed(output_list):
         if item.type != 'text': continue
         if item.chars in whitespace: continue
-        last_significant_char = item
+        if item.is_comment: continue
+        last_significant_char = item.chars[-1:]
         break
 
     return record(
@@ -287,7 +288,8 @@ def java_parse(rawtext):
                                   and last_significant_char == ';'),
         empty = last_significant_char == None,
         terminated_badly = last_significant_char not in {";", "}", None},
-        get_text = get_text
+        get_text = get_text,
+        semicolons = semicolons
     )
 
 def run_tests():
@@ -333,7 +335,11 @@ def run_tests():
         "carriage\u000dreturn",
         "here/*space*/inserted",
         "here/*newline\n*/inserted",
-        "here//newline\ninserted"]
+        "here//newline\ninserted",
+        "foo",
+        "foo;\nbar;",
+        "foo;\nbar//;",
+]
 
     r = []
     for test in tests:
