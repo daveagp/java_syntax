@@ -209,7 +209,7 @@ def java_parse(rawtext):
         # end of checking from 'java' state
         elif state == dquote:
             if is_newline:
-                report_error('String delimeter (") followed by end of line.')
+                report_error('String delimiter (") followed by end of line.')
             elif digram in {r"\\", r'\"'}:
                 position += 1
             elif ch == '"':
@@ -217,7 +217,7 @@ def java_parse(rawtext):
         elif state == squote:
             if is_newline:
                 report_error(
-                    "Character delimeter (') followed by end of line.")
+                    "Character delimiter (') followed by end of line.")
             elif digram in {r"\\", r"\'"}:
                 position += 1
             elif ch == "'":
@@ -257,11 +257,11 @@ def java_parse(rawtext):
         
     # parsing loop is done
     if state == squote:
-        report_error("Character delimeter (') followed by end of input.")
+        report_error("Character delimiter (') followed by end of input.")
     elif state == dquote:
-        report_error("String delimeter (\") followed by end of input.")
+        report_error("String delimiter (\") followed by end of input.")
     elif state == mcomment:
-        report_error("Comment delimeter (/*) followed by end of input.")
+        report_error("Comment delimiter (/*) followed by end of input.")
     elif len(nesting_stack) > 0:
         report_error("Unmatched '{}'. Expected '{}' at end.".format(
             nesting_stack[-1], match[nesting_stack[-1]]))
