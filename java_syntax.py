@@ -108,11 +108,14 @@ def java_parse(rawtext):
         tmp = re.sub("\n\r|\r\n|\r", "\n", tmp)
         return tmp
 
-    def report_error(description):
+    def report_error(description, no_pos = False):
         nonlocal errmsg
         if errmsg=="":
-            errmsg = "Error at line {}, column {}:\n{}".format(
-                line, column, description)
+            if no_pos:
+                errmsg = description
+            else:
+                errmsg = "Error at line {}, column {}:\n{}".format(
+                    line, column, description)
 
     def tabify_output_list(keep_comments, tab_width):
         result = []
@@ -257,14 +260,14 @@ def java_parse(rawtext):
         
     # parsing loop is done
     if state == squote:
-        report_error("Character delimiter (') followed by end of input.")
+        report_error("Character delimiter (') not followed by a matching end quote.", True)
     elif state == dquote:
-        report_error("String delimiter (\") followed by end of input.")
+        report_error("String delimiter (\") not followed by a matching end quote.", True)
     elif state == mcomment:
-        report_error("Comment delimiter (/*) followed by end of input.")
+        report_error("Comment delimiter (/*) not followed by a matching end delimiter (*/).", True)
     elif len(nesting_stack) > 0:
-        report_error("Unmatched '{}'. Expected '{}' at end.".format(
-            nesting_stack[-1], match[nesting_stack[-1]]))
+        report_error("Opening '{}' not followed by a matching closing '{}'.".format(
+            nesting_stack[-1], match[nesting_stack[-1]]), True)
 
     register_newline()
 
