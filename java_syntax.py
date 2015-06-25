@@ -307,14 +307,14 @@ def is_valid_substitute(reference_code, student_code):
     if refparse.oneline or refparse.oneline_with_semicolon:
         if "\n" in student_code:
             return [False, "newlines are not allowed"]
-    if refparse.oneline and stuparse.semicolons > 0:
-        return [False, "; is not allowed"]
-    if refparse.oneline_with_semicolon and not stuparse.oneline_with_semicolon:
-            return [False, "must have exactly one semicolon, at the end"]
+ #   if refparse.oneline and stuparse.semicolons > 0:
+  #      return [False, "; is not allowed"]
+    #if refparse.oneline_with_semicolon and not stuparse.oneline_with_semicolon:
+#            return [False, "must have exactly one semicolon, at the end"]
     if stuparse.empty and not refparse.empty:
         return [False, "must not be empty"]
-    if stuparse.terminated_badly and not refparse.terminated_badly:
-        return [False, "must end with a semicolon (;) or a {block}"]
+#    if stuparse.terminated_badly and not refparse.terminated_badly:
+ #       return [False, "must end with a semicolon (;) or a {block}"]
     return [True]
 
 
